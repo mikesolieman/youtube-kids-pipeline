@@ -3,6 +3,7 @@ import json
 import pandas as pd
 from datetime import datetime
 import glob
+from src.transformers.data_validator import YouTubeDataValidator
 
 class YouTubeDataTransformer:
     def __init__(self, raw_data_path: str = "data/raw", processed_data_path: str = "data/processed"):
@@ -107,10 +108,19 @@ class YouTubeDataTransformer:
     
     def transform(self):
         """Execute full transformation process"""
+        validator = YouTubeDataValidator()
+
         print("Starting transformation process...")
-        
-        # Load raw data
+
+        # Load and transform raw data
         channel_df, video_df = self.load_raw_data()
+        
+        # Validate
+        if not validator.validate_channel_data(channel_df):
+            raise ValueError("Basic channel validation failed")
+        
+        if not validator.validate_video_data(video_df):
+            raise ValueError("Basic video validation failed")
         
         # Create dimensional model
         dim_channel = self.create_dim_channel(channel_df)

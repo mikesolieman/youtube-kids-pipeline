@@ -3,6 +3,9 @@ from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 import pandas as pd
+import json
+from pathlib import Path
+import re
 from src.config.settings import TARGET_CHANNELS
 
 class YouTubeKidsExtractor:
@@ -11,106 +14,132 @@ class YouTubeKidsExtractor:
         self.youtube = build('youtube', 'v3', 
                            developerKey=os.getenv('YOUTUBE_API_KEY'))
         self.target_channels = TARGET_CHANNELS
-    
-    def get_channel_stats(self, channel_id):
-        """Get basic channel statistics"""
-        request = self.youtube.channels().list(
-            part="statistics,snippet",
-            id=channel_id
-        )
-        response = request.execute()
-        
-        if 'items' in response:
-            stats = response['items'][0]['statistics']
-            snippet = response['items'][0]['snippet']
-            return {
-                'channelName': snippet['title'],
-                'subscribers': stats['subscriberCount'],
-                'totalViews': stats['viewCount'],
-                'totalVideos': stats['videoCount'],
-                'channelDescription': snippet['description'],
-                'channelId': channel_id,
-                'extractDate': datetime.now().strftime('%Y-%m-%d')
-            }
-        return None
 
-    def get_recent_videos(self, channel_id, max_results=10):
-        """Get most recent videos from channel"""
-        request = self.youtube.search().list(
-            part="snippet",
-            channelId=channel_id,
-            order="date",
-            type="video",
-            maxResults=max_results
-        )
-        response = request.execute()
+    def clean_text(self, text):
+        """Clean unicode characters and HTML entities from text"""
+        text = text.encode('ascii', 'ignore').decode('ascii')
+        text = text.replace('&amp;', '&')
+        text = text.replace('&#39;', "'")
+        return text.strip()
         
+    def ensure_data_directories(self):
+        """Create data directories if they don't exist"""
+        Path("data/raw").mkdir(parents=True, exist_ok=True)
+        Path("data/processed").mkdir(parents=True, exist_ok=True)
+
+    def get_channel_details(self, channel_id):
+        """Get detailed channel metrics"""
+        try:
+            request = self.youtube.channels().list(
+                part="snippet,statistics,brandingSettings",
+                id=channel_id
+            )
+            response = request.execute()
+            
+            if 'items' in response and response['items']:
+                channel = response['items'][0]
+                
+                return {
+                    'channel_id': channel_id,
+                    'channel_name': channel['snippet']['title'],
+                    'channel_url': f"https://www.youtube.com/channel/{channel_id}",
+                    'country': channel['snippet'].get('country', 'Unknown'),
+                    'joined_date': channel['snippet']['publishedAt'],
+                    'subscriber_count': int(channel['statistics']['subscriberCount']),
+                    'total_views': int(channel['statistics']['viewCount']),
+                    'extracted_at': datetime.now().isoformat(),
+                }
+        except Exception as e:
+            print(f"Error getting channel details: {str(e)}")
+            return None
+
+    def parse_duration(self, duration):
+        """Convert YouTube duration (PT1H2M10S) to seconds"""
+        match = re.match(r'PT((?P<hours>\d+)H)?((?P<minutes>\d+)M)?((?P<seconds>\d+)S)?', duration)
+        if not match:
+            return 0
+        
+        parts = {k: int(v) for k, v in match.groupdict().items() if v}
+        return parts.get('hours', 0) * 3600 + parts.get('minutes', 0) * 60 + parts.get('seconds', 0)
+
+    def get_video_details(self, channel_id, start_date=None, end_date=None, max_results=None):
         videos = []
-        for item in response.get('items', []):
-            video_id = item['id']['videoId']
-            video_stats = self.get_video_stats(video_id)
-            
-            video_data = {
-                'videoId': video_id,
-                'title': item['snippet']['title'],
-                'publishedAt': item['snippet']['publishedAt'],
-                'description': item['snippet']['description'],
-                'channelId': channel_id,
-                'extractDate': datetime.now().strftime('%Y-%m-%d')
-            }
-            videos.append({**video_data, **video_stats})
-            
-        return videos
-    
-    def get_video_stats(self, video_id):
-        """Get statistics for a specific video"""
-        request = self.youtube.videos().list(
-            part="statistics,contentDetails",
-            id=video_id
-        )
-        response = request.execute()
+        next_page_token = None
+        quota_used = 0
         
-        if 'items' in response:
-            stats = response['items'][0]['statistics']
-            content_details = response['items'][0]['contentDetails']
-            return {
-                'views': stats.get('viewCount', 0),
-                'likes': stats.get('likeCount', 0),
-                'comments': stats.get('commentCount', 0),
-                'duration': content_details['duration']
-            }
-        return {}
+        if start_date:
+            start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00')).replace(tzinfo=None)
+        if end_date:
+            end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00')).replace(tzinfo=None)
 
-    def extract_all_channels(self):
-        """Extract data for all target channels"""
-        channel_stats = []
-        all_videos = []
-        
-        for channel_name, channel_id in self.target_channels.items():
-            print(f"Extracting data for {channel_name}...")
-            
-            # Get channel statistics
-            stats = self.get_channel_stats(channel_id)
-            if stats:
-                channel_stats.append(stats)
-            
-            # Get recent videos
-            videos = self.get_recent_videos(channel_id)
-            all_videos.extend(videos)
-        
-        # Convert to DataFrames
-        channels_df = pd.DataFrame(channel_stats)
-        videos_df = pd.DataFrame(all_videos)
-        
-        return channels_df, videos_df
+        try:
+            while True:
+                request = self.youtube.search().list(
+                    part="snippet",
+                    channelId=channel_id,
+                    maxResults=50,
+                    order="date",
+                    type="video",
+                    pageToken=next_page_token,
+                    publishedAfter=start_date.isoformat() + 'Z' if start_date else None,
+                    publishedBefore=end_date.isoformat() + 'Z' if end_date else None
+                )
+                search_response = request.execute()
+                quota_used += 100
+                
+                if not search_response.get('items'):
+                    break
 
-if __name__ == "__main__":
-    # Usage example
-    extractor = YouTubeKidsExtractor()
-    channels_df, videos_df = extractor.extract_all_channels()
-    
-    # Save to CSV for initial testing
-    channels_df.to_csv('channel_stats.csv', index=False)
-    videos_df.to_csv('recent_videos.csv', index=False)
-    
-    print("Data extraction complete!")
+                video_ids = [item['id']['videoId'] for item in search_response['items']]
+                
+                video_request = self.youtube.videos().list(
+                    part="contentDetails,statistics",
+                    id=','.join(video_ids)
+                )
+                video_response = video_request.execute()
+                quota_used += 1
+
+                for search_item, video_item in zip(search_response['items'], video_response['items']):
+                    upload_datetime = datetime.fromisoformat(
+                        search_item['snippet']['publishedAt'].replace('Z', '+00:00')
+                    ).replace(tzinfo=None)
+                    
+                    duration = video_item['contentDetails']['duration']
+                    duration_seconds = self.parse_duration(duration)
+                    
+                    if duration_seconds < 60:
+                        continue
+                    
+                    videos.append({
+                        'video_id': search_item['id']['videoId'],
+                        'channel_id': channel_id,
+                        'title': self.clean_text(search_item['snippet']['title']),
+                        'url': f"https://www.youtube.com/watch?v={search_item['id']['videoId']}",
+                        'duration_seconds': duration_seconds,
+                        'view_count': int(video_item['statistics']['viewCount']),
+                        'upload_datetime': upload_datetime.isoformat(),
+                        'extracted_at': datetime.now().isoformat()
+                    })
+                    
+                    if max_results and len(videos) >= max_results:
+                        return videos, quota_used
+
+                next_page_token = search_response.get('nextPageToken')
+                if not next_page_token:
+                    break
+
+            return videos, quota_used
+        except Exception as e:
+            print(f"Error getting video details: {str(e)}")
+            return None, quota_used
+
+    def save_data(self, data, filename):
+        """Save data to JSON file with timestamp"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = Path(f"data/raw/{filename}_{timestamp}.json")
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        print(f"Data saved to {filepath}")
+        return filepath
