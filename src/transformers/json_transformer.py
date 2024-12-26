@@ -2,41 +2,13 @@ from pathlib import Path
 import json
 import pandas as pd
 from datetime import datetime
-import glob
 from src.transformers.data_validator import YouTubeDataValidator
 
 class YouTubeDataTransformer:
-    def __init__(self, raw_data_path: str = "data/raw", processed_data_path: str = "data/processed"):
+    def __init__(self, raw_data_path: str = "/opt/airflow/data/raw", processed_data_path: str = "/opt/airflow/data/processed"):
         self.raw_data_path = Path(raw_data_path)
         self.processed_data_path = Path(processed_data_path)
         self.processed_data_path.mkdir(parents=True, exist_ok=True)
-        
-    def get_latest_files(self):
-        """Get the latest channel and video JSON files"""
-        channel_files = glob.glob(str(self.raw_data_path / "channel_details_*.json"))
-        video_files = glob.glob(str(self.raw_data_path / "video_details_*.json"))
-        
-        # Get most recent files based on timestamp in filename
-        latest_channel = max(channel_files, key=lambda x: x.split('_')[-1]) if channel_files else None
-        latest_video = max(video_files, key=lambda x: x.split('_')[-1]) if video_files else None
-        
-        return latest_channel, latest_video
-    
-    def load_raw_data(self):
-        """Load the latest JSON files into pandas DataFrames"""
-        channel_file, video_file = self.get_latest_files()
-        
-        with open(channel_file, 'r') as f:
-            channel_data = json.load(f)
-        
-        with open(video_file, 'r') as f:
-            video_data = json.load(f)
-            
-        # Convert to DataFrames
-        channel_df = pd.DataFrame([channel_data])
-        video_df = pd.DataFrame(video_data)
-        
-        return channel_df, video_df
     
     def create_dim_channel(self, channel_df):
         """Create channel dimension table"""
@@ -106,33 +78,42 @@ class YouTubeDataTransformer:
             index=False
         )
     
-    def transform(self):
+    def transform(self, channel_file: str, video_file: str):
         """Execute full transformation process"""
         validator = YouTubeDataValidator()
 
         print("Starting transformation process...")
 
-        # Load and transform raw data
-        channel_df, video_df = self.load_raw_data()
+        try:
+            # Load raw data from specified files
+            with open(channel_file, 'r') as f:
+                channel_data = json.load(f)
+            
+            with open(video_file, 'r') as f:
+                video_data = json.load(f)
+            
+            # Convert to DataFrames
+            channel_df = pd.DataFrame([channel_data])
+            video_df = pd.DataFrame(video_data)
         
-        # Validate
-        if not validator.validate_channel_data(channel_df):
-            raise ValueError("Basic channel validation failed")
+            # Validate
+            if not validator.validate_channel_data(channel_df):
+                raise ValueError("Basic channel validation failed")
+            
+            if not validator.validate_video_data(video_df):
+                raise ValueError("Basic video validation failed")
+            
+            # Transform the data into dimensional models
+            dim_channel = self.create_dim_channel(channel_df)
+            dim_video = self.create_dim_video(video_df)
+            fact_video_metrics = self.create_fact_video_metrics(video_df)
+            
+            # Save transformed data
+            self.save_transformed_data(dim_channel, dim_video, fact_video_metrics)
+            
+            print("Transformation complete!")
+            return dim_channel, dim_video, fact_video_metrics
         
-        if not validator.validate_video_data(video_df):
-            raise ValueError("Basic video validation failed")
-        
-        # Create dimensional model
-        dim_channel = self.create_dim_channel(channel_df)
-        dim_video = self.create_dim_video(video_df)
-        fact_video_metrics = self.create_fact_video_metrics(video_df)
-        
-        # Save transformed data
-        self.save_transformed_data(dim_channel, dim_video, fact_video_metrics)
-        
-        print("Transformation complete!")
-        return dim_channel, dim_video, fact_video_metrics
-
-if __name__ == "__main__":
-    transformer = YouTubeDataTransformer()
-    dim_channel, dim_video, fact_video_metrics = transformer.transform()
+        except Exception as e:
+            print(f"Transform error: {str(e)}")
+            raise

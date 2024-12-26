@@ -6,14 +6,14 @@ import pandas as pd
 import json
 from pathlib import Path
 import re
-from src.config.settings import TARGET_CHANNELS
+from src.config.settings import TARGET_CHANNEL_IDS
 
 class YouTubeKidsExtractor:
     def __init__(self):
         load_dotenv()
         self.youtube = build('youtube', 'v3', 
                            developerKey=os.getenv('YOUTUBE_API_KEY'))
-        self.target_channels = TARGET_CHANNELS
+        self.target_channels = TARGET_CHANNEL_IDS
 
     def clean_text(self, text):
         """Clean unicode characters and HTML entities from text"""
@@ -136,7 +136,7 @@ class YouTubeKidsExtractor:
     def save_data(self, data, filename):
         """Save data to JSON file with timestamp"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = Path(f"data/raw/{filename}_{timestamp}.json")
+        filepath = Path(f"/opt/airflow/data/raw/{filename}_{timestamp}.json")
         
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)

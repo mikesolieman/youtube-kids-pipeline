@@ -4,8 +4,8 @@
 YOUTUBE_API_BASE_URL = "https://www.googleapis.com/youtube/v3"
 API_REQUEST_DELAY = 0.1  # seconds between API calls
 
-# Channel Configuration
-TARGET_CHANNELS = {
+# Channel Configuration for v2
+TARGET_CHANNEL_IDS = {
     'Cocomelon': 'UCbCmjCuTUZos6Inko4u57UQ',
     'Baby Shark': 'UCcdwLMPsaU2ezNSJU1nFoBQ',
     'Super Simple Songs': 'UCLsooMJoIpl_7ux2jvdPB-Q',
@@ -15,6 +15,10 @@ TARGET_CHANNELS = {
 # Data Collection Settings
 MAX_RESULTS_PER_CHANNEL = 50
 DATA_COLLECTION_PERIOD_DAYS = 30
+
+# Initial upload time period for videos extraction
+START_DATE = "2023-01-01T00:00:00"
+END_DATE = "2023-01-31T23:59:59"
 
 # File Paths
 RAW_DATA_PATH = "data/raw"
