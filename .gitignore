@@ -6,6 +6,5 @@ data/raw/
 data/processed/
 data/analyzed/
 data/exploration/
-README.md
 logs/
 .DS_Store
