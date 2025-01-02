@@ -6,14 +6,31 @@ import pandas as pd
 import json
 from pathlib import Path
 import re
+import logging
 from src.config.settings import TARGET_CHANNEL_IDS
+from src.gcp.storage import GCPStorageManager, BigQueryManager, CHANNEL_SCHEMA, VIDEO_SCHEMA
 
 class YouTubeKidsExtractor:
     def __init__(self):
         load_dotenv()
         self.youtube = build('youtube', 'v3', 
-                           developerKey=os.getenv('YOUTUBE_API_KEY'))
+                           developerKey=os.getenv('YOUTUBE_API_KEY'))      
+
         self.target_channels = TARGET_CHANNEL_IDS
+
+        # Get GCP config from environment
+        project_id = os.getenv('GCP_PROJECT_ID')
+        bucket_name = os.getenv('GCP_BUCKET_NAME')
+        dataset_id = os.getenv('GCP_DATASET_ID')
+
+        # Initialize GCP clients
+        self.storage_manager = GCPStorageManager(bucket_name, project_id)
+        self.bq_manager = BigQueryManager(project_id, dataset_id)
+
+        # Ensure BigQuery resources exist
+        self.bq_manager.create_dataset_if_not_exists()
+        self.bq_manager.create_table_if_not_exists('channels', CHANNEL_SCHEMA)
+        self.bq_manager.create_table_if_not_exists('videos', VIDEO_SCHEMA)
 
     def clean_text(self, text):
         """Clean unicode characters and HTML entities from text"""
@@ -21,14 +38,9 @@ class YouTubeKidsExtractor:
         text = text.replace('&amp;', '&')
         text = text.replace('&#39;', "'")
         return text.strip()
-        
-    def ensure_data_directories(self):
-        """Create data directories if they don't exist"""
-        Path("data/raw").mkdir(parents=True, exist_ok=True)
-        Path("data/processed").mkdir(parents=True, exist_ok=True)
 
     def get_channel_details(self, channel_id):
-        """Get detailed channel metrics"""
+        """Get detailed channel metrics and store in GCP"""
         try:
             request = self.youtube.channels().list(
                 part="snippet,statistics,brandingSettings",
@@ -39,7 +51,7 @@ class YouTubeKidsExtractor:
             if 'items' in response and response['items']:
                 channel = response['items'][0]
                 
-                return {
+                channel_data = {
                     'channel_id': channel_id,
                     'channel_name': channel['snippet']['title'],
                     'channel_url': f"https://www.youtube.com/channel/{channel_id}",
@@ -49,6 +61,25 @@ class YouTubeKidsExtractor:
                     'total_views': int(channel['statistics']['viewCount']),
                     'extracted_at': datetime.now().isoformat(),
                 }
+            
+                # Save to GCS
+                gcs_path = self.storage_manager.upload_json(
+                    channel_data, 
+                    'raw/channels', 
+                    'channel_details'
+                ) 
+
+                # Convert to DataFrame and load to BigQuery
+                df = pd.DataFrame([channel_data])
+                df['subscriber_count'] = df['subscriber_count'].astype(int)
+                df['total_views'] = df['total_views'].astype(int)
+                df['joined_date'] = pd.to_datetime(df['joined_date'])
+                df['extracted_at'] = pd.to_datetime(df['extracted_at'])
+                
+                self.bq_manager.load_dataframe(df, 'channels')
+
+                return gcs_path
+        
         except Exception as e:
             print(f"Error getting channel details: {str(e)}")
             return None
@@ -63,6 +94,7 @@ class YouTubeKidsExtractor:
         return parts.get('hours', 0) * 3600 + parts.get('minutes', 0) * 60 + parts.get('seconds', 0)
 
     def get_video_details(self, channel_id, start_date=None, end_date=None, max_results=None):
+        """Get video details and store in GCP"""
         videos = []
         next_page_token = None
         quota_used = 0
@@ -74,6 +106,7 @@ class YouTubeKidsExtractor:
 
         try:
             while True:
+                # Search for videos
                 request = self.youtube.search().list(
                     part="snippet",
                     channelId=channel_id,
@@ -90,8 +123,8 @@ class YouTubeKidsExtractor:
                 if not search_response.get('items'):
                     break
 
+                # Get detailed video information
                 video_ids = [item['id']['videoId'] for item in search_response['items']]
-                
                 video_request = self.youtube.videos().list(
                     part="contentDetails,statistics",
                     id=','.join(video_ids)
@@ -99,6 +132,7 @@ class YouTubeKidsExtractor:
                 video_response = video_request.execute()
                 quota_used += 1
 
+                # Process video data
                 for search_item, video_item in zip(search_response['items'], video_response['items']):
                     upload_datetime = datetime.fromisoformat(
                         search_item['snippet']['publishedAt'].replace('Z', '+00:00')
@@ -122,24 +156,30 @@ class YouTubeKidsExtractor:
                     })
                     
                     if max_results and len(videos) >= max_results:
-                        return videos, quota_used
+                        break
 
                 next_page_token = search_response.get('nextPageToken')
-                if not next_page_token:
+                if not next_page_token or (max_results and len(videos) >= max_results):
                     break
 
-            return videos, quota_used
+            # Save to GCS
+            gcs_path = self.storage_manager.upload_json(
+                videos, 
+                'raw/videos', 
+                'video_details'
+            )
+            
+            # Load to BigQuery
+            if videos:
+                df = pd.DataFrame(videos)
+                df['view_count'] = df['view_count'].astype(int)
+                df['duration_seconds'] = df['duration_seconds'].astype(int)
+                df['upload_datetime'] = pd.to_datetime(df['upload_datetime'])
+                df['extracted_at'] = pd.to_datetime(df['extracted_at'])
+                self.bq_manager.load_dataframe(df, 'videos')
+            
+            return gcs_path, quota_used
+        
         except Exception as e:
             print(f"Error getting video details: {str(e)}")
             return None, quota_used
-
-    def save_data(self, data, filename):
-        """Save data to JSON file with timestamp"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = Path(f"/opt/airflow/data/raw/{filename}_{timestamp}.json")
-        
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        
-        print(f"Data saved to {filepath}")
-        return filepath

@@ -1,28 +1,27 @@
-# src/config/settings.py
-
 # API Configuration
 YOUTUBE_API_BASE_URL = "https://www.googleapis.com/youtube/v3"
-API_REQUEST_DELAY = 0.1  # seconds between API calls
+YOUTUBE_API_QUOTA_LIMIT = 10000  # Daily quota limit
 
-# Channel Configuration for v2
+# Channel Configuration
 TARGET_CHANNEL_IDS = {
     'Cocomelon': 'UCbCmjCuTUZos6Inko4u57UQ',
     'Baby Shark': 'UCcdwLMPsaU2ezNSJU1nFoBQ',
     'Super Simple Songs': 'UCLsooMJoIpl_7ux2jvdPB-Q',
-    'Blippi': 'UC5PYHfAzxe-64vRjWG7yxTA'
+    'Blippi': 'UC5PYHgAzJ1wLEidB58SK6Xw'
+    
 }
 
-# Data Collection Settings
-MAX_RESULTS_PER_CHANNEL = 50
-DATA_COLLECTION_PERIOD_DAYS = 30
+# API Request Configuration
+MAX_RESULTS_PER_REQUEST = 50  # YouTube API max results per page
 
-# Initial upload time period for videos extraction
-START_DATE = "2023-01-01T00:00:00"
-END_DATE = "2023-01-31T23:59:59"
+# Storage Configuration
+RAW_DATA_PATH = "data/raw"  # For GCS uploads
 
-# File Paths
-RAW_DATA_PATH = "data/raw"
-PROCESSED_DATA_PATH = "data/processed"
+# BigQuery Configuration
+BQ_TABLES = {
+    'channels': 'channels',
+    'videos': 'videos'
+}
 
 # Logging Configuration
 LOG_LEVEL = "INFO"
