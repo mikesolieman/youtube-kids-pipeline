@@ -1,6 +1,6 @@
 # YouTube Kids Content Analytics Pipeline
 
-A data pipeline I built at Disney Streaming to optimize our content strategy. The pipeline enables analysis of key metrics like video duration, upload frequency patterns, and optimal posting schedules across top kids' channels. The insights reveal how successful channels balanced content length with posting frequency, helping inform programming strategy. This version demonstrates the same techniques using public YouTube data.
+A data pipeline I built at Disney Streaming to optimize our content strategy. The pipeline enables analysis of key metrics like video duration, upload frequency patterns, and optimal posting schedules across top kids' channels. The insights reveal how successful channels balance content length with posting frequency, helping inform programming strategy. This version demonstrates the same techniques using public YouTube data.
 
 ## Core Features
 - Automated data pipeline with Airflow orchestration
