@@ -9,3 +9,4 @@ data/exploration/
 README.md
 logs/
 .DS_Store
+*json
