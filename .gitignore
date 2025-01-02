@@ -1,4 +1,6 @@
 .env
+*.json
+!requirements.json
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
@@ -6,7 +8,6 @@ data/raw/
 data/processed/
 data/analyzed/
 data/exploration/
-README.md
 logs/
 .DS_Store
 *json

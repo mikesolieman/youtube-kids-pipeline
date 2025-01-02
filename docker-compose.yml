@@ -4,13 +4,19 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
+    environment:
+      - PYTHONPATH=/opt/airflow
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/youtube-kids-pipeline-45aab0c99825.json
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_BUCKET_NAME=${GCP_BUCKET_NAME}
+      - GCP_DATASET_ID=${GCP_DATASET_ID}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
     volumes:
       - .:/app
+      - ./youtube-kids-pipeline-45aab0c99825.json:/opt/airflow/youtube-kids-pipeline-45aab0c99825.json:ro
     ports:
-      - "8899:8888"  # Changed from 8888:8888
-      - "8090:8080"  # Changed from 8080:8080
-    env_file:
-      - .env
+      - "8889:8888"
+      - "8090:8080"
     command: jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=''
 
   airflow:
@@ -23,19 +29,26 @@ services:
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       - AIRFLOW_WWW_USER_USERNAME=${AIRFLOW_ADMIN_USERNAME}
       - AIRFLOW_WWW_USER_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
-      - PYTHONPATH=/opt/airflow:/opt/airflow/dags:/opt/airflow/src
+      - PYTHONPATH=/opt/airflow
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/youtube-kids-pipeline-45aab0c99825.json
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_BUCKET_NAME=${GCP_BUCKET_NAME}
+      - GCP_DATASET_ID=${GCP_DATASET_ID}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - ./src:/opt/airflow/src
       - ./data:/opt/airflow/data
-    ports:
-      - "8084:8080"
+      - ./youtube-kids-pipeline-45aab0c99825.json:/opt/airflow/youtube-kids-pipeline-45aab0c99825.json:ro
     env_file:
       - .env
+    ports:
+      - "8084:8080"
     entrypoint: >
       bash -c "
       airflow db init &&
+      airflow users create --username $$AIRFLOW_WWW_USER_USERNAME --password $$AIRFLOW_WWW_USER_PASSWORD --firstname Anonymous --lastname Admin --role Admin --email admin@example.com &&
       airflow scheduler & 
       exec airflow webserver"
 
@@ -47,6 +60,8 @@ services:
       - POSTGRES_DB=airflow
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
 
 volumes:
   postgres_data:
